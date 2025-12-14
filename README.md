@@ -31,4 +31,5 @@ sudo apt update
 sudo apt install build-essential
 
 ```
-
+## :books: Note
+`grammar:`The rules that process and understand infinite number of different things with a finite number of *re-write* rules.
