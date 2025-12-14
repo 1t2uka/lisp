@@ -1,9 +1,9 @@
 CC = gcc
 TARGET = prompt
-SOURCE = main.c 
+SOURCE = parsing.c mpc.c
 OBJECT = $(SOURCE:.c=.o)
 CFLAGS = -std=c99 -Wall -g
-LIBS = -ledit
+LIBS = -ledit -lm
 
 .PHONY: all
 all:$(TARGET)
