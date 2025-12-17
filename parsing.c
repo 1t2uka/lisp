@@ -35,12 +35,18 @@ int main(int argc, char** argv) {
 	mpc_parser_t *Expr     = mpc_new("expr");
 	mpc_parser_t *Lispy    = mpc_new("lispy");
 
+	/*
+	 * 一般输入为字面量
+	 * //内包裹正则表达式
+	 * <>内包裹规则引用
+	 * */
 	mpca_lang(MPCA_LANG_DEFAULT,
 		  "						\
-		  number : /-?[0-9]+/;				\
-		  operator : '+' | '-' | '*' | '/';		\
+		  number : /-?[0-9]+(\\.[0-9]+)?/;			\
+		  operator : '+' | '-' | '*' | '/' | '%'	\
+		  | \"add\" | \"sub\" | \"mul\"	| \"div\"     ;	\
 		  expr : <number> | '(' <operator> <expr>+ ')';	\
-		  lispy	: /^/ <operator> <expr>+ /$/;		\
+		  lispy	: /^/ <expr> (<operator><expr>)* /$/;		\
 		  ",
 		  Number, Operator, Expr, Lispy);
 
@@ -68,6 +74,6 @@ int main(int argc, char** argv) {
 
 	}
 
-	mpc_cleanup(4, Number, Operator, Expr, Lispy);
+	mpc_cleanup(5, Number, Operator, Expr, Lispy);
 	return 0;
 }
