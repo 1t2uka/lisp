@@ -41,14 +41,14 @@ enum {LVAL_NUM, LVAL_DOU, LVAL_ERR};
  * @2未知运算符
  * @3数值过大
  * */
-enum { LEER_DIV_ZERO, LEER_BAD_OP, LEER_BAD_NUM };
+enum { LEER_DIV_ZERO, LEER_BAD_OP, LEER_BAD_NUM,LEER_FLOAT_BAD_OP };
 
 /*lisp值，区分值与错误*/
 typedef struct {
 	union {
-	double dou;
-	long num;
-	int err;
+		double dou;
+		long num;
+		int err;
 	} u;
 	int type;
 } lval;
@@ -87,6 +87,8 @@ void lval_print(lval v)
 	switch(v.type) {
 	case LVAL_NUM: printf("%li", v.u.num);
 		       break;
+	case LVAL_DOU: printf("%f",v.u.dou);
+		       break;
 	case LVAL_ERR:
 		       if(v.u.err == LEER_DIV_ZERO)
 			       printf("Error: Divsion by zero!");
@@ -107,30 +109,66 @@ void lval_println(lval v)
 
 lval eval_op(lval x, char *op, lval y)
 {
-	if(x.type == LVAL_ERR)
-		return x;
-	if(y.type == LVAL_ERR)
-		return y;
+	if(x.type == LVAL_ERR) return x;
+	if(y.type == LVAL_ERR) return y;
 
-	if(strcmp(op, "+") == 0)
-		return lval_num(x.u.num + y.u.num);
-	if(strcmp(op, "-") == 0)
-		return lval_num(x.u.num - y.u.num);
-	if(strcmp(op, "*") == 0)
-		return lval_num(x.u.num * y.u.num);
-	if(strcmp(op, "/") == 0) {
-		if(y.u.num == 0)
-			return lval_err(LEER_DIV_ZERO);
-		return lval_num(x.u.num / y.u.num);
+	double x_val;
+	double y_val;
+	int is_double = 0;
+	if(x.type == LVAL_DOU || y.type == LVAL_DOU) {
+		is_double = 1;
+		if(x.type == LVAL_DOU) {
+			x_val = x.u.dou;
+		} else
+			x_val = (double)x.u.num;
+		if(y.type == LVAL_DOU) {
+			y_val = y.u.dou;
+		} else
+			y_val = (double)y.u.num;
+
 	}
-	if(strcmp(op, "%") == 0)
-		return lval_num(x.u.num % y.u.num);
-	if(strcmp(op, "^") == 0)
-		return lval_num(x.u.num ^ y.u.num);
-	if(strcmp(op, "min") == 0)
-		return lval_num(x.u.num < y.u.num ? x.u.num : y.u.num);
-	if(strcmp(op, "max") == 0)
-		return lval_num(x.u.num > y.u.num ? x.u.num : y.u.num);
+	if(!is_double) {
+		if(strcmp(op, "+") == 0)
+			return lval_num(x.u.num + y.u.num);
+		if(strcmp(op, "-") == 0)
+			return lval_num(x.u.num - y.u.num);
+		if(strcmp(op, "*") == 0)
+			return lval_num(x.u.num * y.u.num);
+		if(strcmp(op, "/") == 0) {
+			if(y.u.num == 0)
+				return lval_err(LEER_DIV_ZERO);
+			return lval_num(x.u.num / y.u.num);
+		}
+		if(strcmp(op, "%") == 0)
+			return lval_num(x.u.num % y.u.num);
+		if(strcmp(op, "^") == 0)
+			return lval_num(x.u.num ^ y.u.num);
+		if(strcmp(op, "min") == 0)
+			return lval_num(x.u.num < y.u.num ? x.u.num : y.u.num);
+		if(strcmp(op, "max") == 0)
+			return lval_num(x.u.num > y.u.num ? x.u.num : y.u.num);
+	} else {
+		if(strcmp(op, "+") == 0)
+			return lval_dou(x_val + y_val);
+		if(strcmp(op, "-") == 0)
+			return lval_dou(x_val - y_val);
+		if(strcmp(op, "*") == 0)
+			return lval_dou(x_val * y_val);
+		if(strcmp(op, "/") == 0) {
+			if(y_val == 0)
+				return lval_err(LEER_DIV_ZERO);
+			return lval_dou(x_val / y_val);
+		}
+		if(strcmp(op, "%") == 0)
+			return lval_err(LEER_FLOAT_BAD_OP);
+		if(strcmp(op, "^") == 0)
+			return lval_err(LEER_FLOAT_BAD_OP);
+		if(strcmp(op, "min") == 0)
+			return lval_dou(x_val < y_val ? x.u.num : y_val);
+		if(strcmp(op, "max") == 0)
+			return lval_dou(x_val > y_val ? x.u.num : y_val);
+
+	}
 	return lval_err(LEER_BAD_OP);
 }
 
@@ -148,10 +186,16 @@ lval eval(mpc_ast_t *t)
 	/*标记为数字则将起转换为 int 类型直接返回*/
 	if(strstr(t->tag, "number")) {
 		errno = 0;
-		long x = strtol(t->contents, NULL, 10);
-		if(errno != ERANGE)
-			return lval_num(x);
-		return lval_err(LEER_BAD_NUM);
+		long x_long = strtol(t->contents, NULL, 10);
+		if(errno == ERANGE)
+			return lval_err(LEER_BAD_NUM);
+		//浮点数判断
+		if(strchr(t->contents, '.') != NULL) {
+			double x_double = strtod(t->contents, NULL);
+			return lval_dou(x_double);
+		}
+		return lval_num(x_long);
+
 	}
 	/*
 	 * expr : <number> | '(' <operator> <expr>+ ')';
