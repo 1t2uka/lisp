@@ -1,5 +1,7 @@
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <strings.h>
 #include "mpc.h"
 
 //linux __LINUX__
@@ -31,40 +33,125 @@ int leaves(mpc_ast_t *t);
 
 #endif
 
-long eval_op(long x, char *op, long y) {
-	if(strcmp(op, "+") == 0)
-		return x + y;
-	if(strcmp(op, "-") == 0){
-		//if(long y )
-		return x - y;
+/*枚举可能的lval类型*/
+enum {LVAL_NUM, LVAL_DOU, LVAL_ERR};
+
+/* 创建可能的错误类型枚举
+ * @1除0
+ * @2未知运算符
+ * @3数值过大
+ * */
+enum { LEER_DIV_ZERO, LEER_BAD_OP, LEER_BAD_NUM };
+
+/*lisp值，区分值与错误*/
+typedef struct {
+	union {
+	double dou;
+	long num;
+	int err;
+	} u;
+	int type;
+} lval;
+
+
+/*创建新的number类型(整型long)*/
+lval lval_num(long x)
+{
+	lval v;
+	v.type = LVAL_NUM;
+	v.u.num = x;
+	return v;
+}
+
+/*创建新的number类型（浮点型double）*/
+lval lval_dou(double x)
+{
+	lval v;
+	v.type = LVAL_DOU;
+	v.u.dou = x;
+	return v;
+}
+
+/*创建新的error类型lval数据*/
+lval lval_err(int x)
+{
+	lval v;
+	v.type = LVAL_ERR;
+	v.u.err = x;
+	return v;
+}
+
+/*打印lval类型数据*/
+void lval_print(lval v)
+{
+	switch(v.type) {
+	case LVAL_NUM: printf("%li", v.u.num);
+		       break;
+	case LVAL_ERR:
+		       if(v.u.err == LEER_DIV_ZERO)
+			       printf("Error: Divsion by zero!");
+		       if(v.u.err == LEER_BAD_OP)
+			       printf("Error: Invalid operator!");
+		       if(v.u.err == LEER_BAD_NUM)
+			       printf("Error: Invalid Number!");
+		       break;
 	}
-	if(strcmp(op, "*") == 0)
-		return x * y;
-	if(strcmp(op, "/") == 0)
-		return x / y;
-	if(strcmp(op, "%") == 0)
-		return x % y;
-	if(strcmp(op, "^") == 0)
-		return pow(x, y);
-	if(strcmp(op, "min") == 0)
-		return x < y ? x : y;
-	if(strcmp(op, "max") == 0)
-		return x > y ? x : y;
-	return 0;
 }
 
-long eval_unary(char *op, long x) {
-	if(strcmp(op, "-") == 0)
-		return -x;
+/*println打印*/
+void lval_println(lval v)
+{
+	lval_print(v);
+	putchar('\n');
+}
+
+lval eval_op(lval x, char *op, lval y)
+{
+	if(x.type == LVAL_ERR)
+		return x;
+	if(y.type == LVAL_ERR)
+		return y;
+
 	if(strcmp(op, "+") == 0)
-		return +x;
-	return 0;
+		return lval_num(x.u.num + y.u.num);
+	if(strcmp(op, "-") == 0)
+		return lval_num(x.u.num - y.u.num);
+	if(strcmp(op, "*") == 0)
+		return lval_num(x.u.num * y.u.num);
+	if(strcmp(op, "/") == 0) {
+		if(y.u.num == 0)
+			return lval_err(LEER_DIV_ZERO);
+		return lval_num(x.u.num / y.u.num);
+	}
+	if(strcmp(op, "%") == 0)
+		return lval_num(x.u.num % y.u.num);
+	if(strcmp(op, "^") == 0)
+		return lval_num(x.u.num ^ y.u.num);
+	if(strcmp(op, "min") == 0)
+		return lval_num(x.u.num < y.u.num ? x.u.num : y.u.num);
+	if(strcmp(op, "max") == 0)
+		return lval_num(x.u.num > y.u.num ? x.u.num : y.u.num);
+	return lval_err(LEER_BAD_OP);
 }
 
-long eval(mpc_ast_t *t) {
+lval eval_unary(char *op, lval x)
+{
+	if(strcmp(op, "-") == 0)
+		return lval_num(-x.u.num);
+	if(strcmp(op, "+") == 0)
+		return lval_num(-x.u.num);
+	return lval_err(LEER_BAD_OP);
+}
+
+lval eval(mpc_ast_t *t)
+{
 	/*标记为数字则将起转换为 int 类型直接返回*/
 	if(strstr(t->tag, "number")) {
-		return atoi(t->contents);
+		errno = 0;
+		long x = strtol(t->contents, NULL, 10);
+		if(errno != ERANGE)
+			return lval_num(x);
+		return lval_err(LEER_BAD_NUM);
 	}
 	/*
 	 * expr : <number> | '(' <operator> <expr>+ ')';
@@ -74,7 +161,7 @@ long eval(mpc_ast_t *t) {
 	char *op = t->children[1]->contents;
 
 	/*解析第一个表达式*/
-	long x = eval(t->children[2]);
+	lval x = eval(t->children[2]);
 
 	if(!strstr(t->children[3]->tag, "expr"))
 		return eval_unary(op, x);
@@ -88,7 +175,8 @@ long eval(mpc_ast_t *t) {
 	return x;
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char** argv)
+{
 	mpc_parser_t *Number   = mpc_new("number");
 	mpc_parser_t *Operator = mpc_new("operator");
 	mpc_parser_t *Expr     = mpc_new("expr");
@@ -124,11 +212,11 @@ int main(int argc, char** argv) {
 
 		mpc_result_t r;
 		if (mpc_parse("<stdin>", input, Lispy, &r)) {
-		//	mpc_ast_print(r.output);
-			long result = eval(r.output);
-			printf("%li\n", result);
-		//	int num_leaf = leaves(r.output);
-		//	printf("leaves: %d\n",num_leaf);
+			//	mpc_ast_print(r.output);
+			lval result = eval(r.output);
+			lval_println(result);
+			//	int num_leaf = leaves(r.output);
+			//	printf("leaves: %d\n",num_leaf);
 #if 0
 			//load ast from output
 			mpc_ast_t* a = r.output;
@@ -157,7 +245,8 @@ int main(int argc, char** argv) {
 /*Bonus Marks部分附加函数*/
 
 /*递归计算树的叶子数量*/
-int leaves(mpc_ast_t *t) {
+int leaves(mpc_ast_t *t)
+{
 	if(t->children_num == 0)
 		return 1;
 	int count = 0;
@@ -175,7 +264,8 @@ int leaves(mpc_ast_t *t) {
  * 在遍历解空间树时，leaves函数只需将到达的叶子节点与当前叶子数相加
  * 而depth需要保存当前深度与下一分支深度比较求最大值
  * */
-int depth(mpc_ast_t *t) {
+int depth(mpc_ast_t *t)
+{
 	if(t->children_num == 0)
 		return 1;
 	int max = 0;
