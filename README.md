@@ -19,8 +19,8 @@
 
 | 阶段 | 章节 | 核心功能 | 状态 |
 | :---: | :---: | :--- | :---: |
-| I | 1-6章 | 基础Repl, 输入, 逆波兰表示法, 基本数据结构 | 进行中 |
-| II | 7-10章 | S-Expressions, Q-Expressions, 抽象语法树, 垃圾回收 | 待开始 |
+| I | 1-6章 | 基础Repl, 输入, 逆波兰表示法, 基本数据结构 | 已完成 |
+| II | 7-10章 | S-Expressions, Q-Expressions, 抽象语法树, 垃圾回收 | 进行中 |
 | III | 11-13章 | 环境, 内置函数, 错误处理 | 待开始 |
 | IV | 14章 | lisp函数定义, 高级特性 | 待开始 |
 
@@ -30,6 +30,15 @@
 sudo apt update
 sudo apt install build-essential
 
+#编译
+make
+#运行
+./prompt
+#清除
+make clean
 ```
 ## :books: Note
 `grammar:`The rules that process and understand infinite number of different things with a finite number of *re-write* rules.
+
+## :books: C
+**enum**: a declaration of variables which under the hood are automatically assigned integer constant values
