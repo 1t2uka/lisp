@@ -34,23 +34,33 @@ int leaves(mpc_ast_t *t);
 #endif
 
 /*枚举可能的lval类型*/
-enum {LVAL_NUM, LVAL_DOU, LVAL_ERR};
+typedef enum {
+	LVAL_NUM,
+	LVAL_DOU,
+	LVAL_ERR
+} lval_type_t;
 
 /* 创建可能的错误类型枚举
  * @1除0
  * @2未知运算符
  * @3数值过大
+ * @4浮点数过大
  * */
-enum { LEER_DIV_ZERO, LEER_BAD_OP, LEER_BAD_NUM,LEER_FLOAT_BAD_OP };
+typedef enum {
+	LVAL_ERR_DIV_ZERO,
+	LVAL_ERR_BAD_OP,
+	LVAL_ERR_BAD_NUM,
+	LVAL_ERR_FLOAT_BAD_OP
+} lval_err_t;
 
 /*lisp值，区分值与错误*/
 typedef struct {
 	union {
 		double dou;
 		long num;
-		int err;
+		lval_err_t err;
 	} u;
-	int type;
+	lval_type_t type;
 } lval;
 
 
@@ -90,11 +100,11 @@ void lval_print(lval v)
 	case LVAL_DOU: printf("%f",v.u.dou);
 		       break;
 	case LVAL_ERR:
-		       if(v.u.err == LEER_DIV_ZERO)
+		       if(v.u.err == LVAL_ERR_DIV_ZERO)
 			       printf("Error: Divsion by zero!");
-		       if(v.u.err == LEER_BAD_OP)
+		       if(v.u.err == LVAL_ERR_BAD_OP)
 			       printf("Error: Invalid operator!");
-		       if(v.u.err == LEER_BAD_NUM)
+		       if(v.u.err == LVAL_ERR_BAD_NUM)
 			       printf("Error: Invalid Number!");
 		       break;
 	}
@@ -136,7 +146,7 @@ lval eval_op(lval x, char *op, lval y)
 			return lval_num(x.u.num * y.u.num);
 		if(strcmp(op, "/") == 0) {
 			if(y.u.num == 0)
-				return lval_err(LEER_DIV_ZERO);
+				return lval_err(LVAL_ERR_DIV_ZERO);
 			return lval_num(x.u.num / y.u.num);
 		}
 		if(strcmp(op, "%") == 0)
@@ -156,20 +166,20 @@ lval eval_op(lval x, char *op, lval y)
 			return lval_dou(x_val * y_val);
 		if(strcmp(op, "/") == 0) {
 			if(y_val == 0)
-				return lval_err(LEER_DIV_ZERO);
+				return lval_err(LVAL_ERR_DIV_ZERO);
 			return lval_dou(x_val / y_val);
 		}
 		if(strcmp(op, "%") == 0)
-			return lval_err(LEER_FLOAT_BAD_OP);
+			return lval_err(LVAL_ERR_FLOAT_BAD_OP);
 		if(strcmp(op, "^") == 0)
-			return lval_err(LEER_FLOAT_BAD_OP);
+			return lval_err(LVAL_ERR_FLOAT_BAD_OP);
 		if(strcmp(op, "min") == 0)
 			return lval_dou(x_val < y_val ? x.u.num : y_val);
 		if(strcmp(op, "max") == 0)
 			return lval_dou(x_val > y_val ? x.u.num : y_val);
 
 	}
-	return lval_err(LEER_BAD_OP);
+	return lval_err(LVAL_ERR_BAD_OP);
 }
 
 lval eval_unary(char *op, lval x)
@@ -178,7 +188,7 @@ lval eval_unary(char *op, lval x)
 		return lval_num(-x.u.num);
 	if(strcmp(op, "+") == 0)
 		return lval_num(-x.u.num);
-	return lval_err(LEER_BAD_OP);
+	return lval_err(LVAL_ERR_BAD_OP);
 }
 
 lval eval(mpc_ast_t *t)
@@ -188,7 +198,7 @@ lval eval(mpc_ast_t *t)
 		errno = 0;
 		long x_long = strtol(t->contents, NULL, 10);
 		if(errno == ERANGE)
-			return lval_err(LEER_BAD_NUM);
+			return lval_err(LVAL_ERR_BAD_NUM);
 		//浮点数判断
 		if(strchr(t->contents, '.') != NULL) {
 			double x_double = strtod(t->contents, NULL);
@@ -256,24 +266,8 @@ int main(int argc, char** argv)
 
 		mpc_result_t r;
 		if (mpc_parse("<stdin>", input, Lispy, &r)) {
-			//	mpc_ast_print(r.output);
 			lval result = eval(r.output);
 			lval_println(result);
-			//	int num_leaf = leaves(r.output);
-			//	printf("leaves: %d\n",num_leaf);
-#if 0
-			//load ast from output
-			mpc_ast_t* a = r.output;
-			printf("Tag: %s\n", a->tag);
-			printf("Contents: %s\n", a->contents);
-			printf("Number of children: %i\n", a->children_num);
-
-			/*GET First Child*/
-			mpc_ast_t* c0 = a->children[0];
-			printf("First Child Tag: %s\n", c0->tag);
-			printf("First Child Contents: %s\n", c0->contents);
-			printf("First Child Number of Children: %i\n", c0->children_num);
-#endif
 			mpc_ast_delete(r.output);
 		} else {
 			mpc_err_print(r.error);
