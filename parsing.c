@@ -25,7 +25,9 @@ void add_history(char* unused) {}
 #else
 #include <editline/readline.h>
 #include <editline/history.h>
+
 #endif
+
 /*Bonus Marks函数测试前向声明*/
 #if 1
 int leaves(mpc_ast_t *t);
@@ -36,27 +38,28 @@ int leaves(mpc_ast_t *t);
 /*枚举可能的lval类型*/
 typedef enum {
 	LVAL_NUM,
-	LVAL_DOU,
+	LVAL_NUM_D,
 	LVAL_ERR,
 	LVAL_SYM,
 	LVAL_SEXPR
 } lval_type_t;
 
-/*lisp值，区分值与错误*/
+/*
+ * lisp value,即lisp内部列表结构
+ * union内部为数字，符号，或者错误时错误描述字符串
+ * 使用完整的标签名（使用匿名标签会导致自引用结构体编译时无法确认类型）
+ * 使用二级指针存储lval* 类型的数组（使用实体会导致嵌套声明内存溢出）
+ * 二级指针允许动态调整指针数组大小（realloc)
+ * */
 typedef struct lval {
 	union {
-		double dou;
+		double num_d;
 		long num;
-		//lval_err_t err;
 		char *err;
 		char *sym;
 	} u;
 	lval_type_t type;
 	int count;
-	/* 自身引用需添加struct字段作为前向声明
-	 * 自引用struct结构时只能引用指针类型以确定大小
-	 * 双指针为了存储lval *列表（数组）
-	 */
 	struct lval **cell;
 } lval;
 
@@ -71,11 +74,11 @@ lval* lval_num(long x)
 }
 
 /*number类型（浮点型double）构造函数*/
-lval* lval_dou(double x)
+lval* lval_num_d(double x)
 {
 	lval *v = malloc(sizeof(lval));
-	v->type = LVAL_DOU;
-	v->u.dou = x;
+	v->type = LVAL_NUM_D;
+	v->u.num_d = x;
 	return v;
 }
 
@@ -114,7 +117,7 @@ void lval_del(lval *v)
 {
 	switch (v->type) {
 	case LVAL_NUM: break;
-	case LVAL_DOU: break;
+	case LVAL_NUM_D: break;
 
 	case LVAL_ERR: free(v->u.err); break;
 	case LVAL_SYM: free(v->u.sym); break;
@@ -129,7 +132,7 @@ void lval_del(lval *v)
 	free(v);
 }
 
-/*读取整数*/
+/*读取整数,并使用该值创立lval类型数据*/
 lval* lval_read_num(mpc_ast_t *t)
 {
 	errno = 0;
@@ -139,24 +142,26 @@ lval* lval_read_num(mpc_ast_t *t)
 	return lval_err("invalid number");
 }
 
-/*读取浮点数*/
+/*读取浮点数,同上*/
 lval* lval_read_double(mpc_ast_t *t)
 {
 	errno = 0;
 	double x = strtod(t->contents, NULL);
 	if(errno != ERANGE)
-		return lval_dou(x);
+		return lval_num_d(x);
 	return lval_err("invalid double");
 }
 
+/*添加元素*/
 lval* lval_add(lval *v, lval *x)
 {
 	v->count++;
-	v->cell = realloc(v->cell, sizeof(lval*) *v->count);
+	v->cell = realloc(v->cell, sizeof(lval*) * v->count);
 	v->cell[v->count - 1] = x;
 	return v;
 }
 
+/*读取抽象语法树ast转化为s表达式*/
 lval* lval_read(mpc_ast_t *t)
 {
 	if(strstr(t->tag, "number")){
@@ -193,7 +198,7 @@ void lval_print(lval *v)
 	switch(v->type) {
 	case LVAL_NUM: printf("%li", v->u.num);
 		       break;
-	case LVAL_DOU: printf("%f",v->u.dou);
+	case LVAL_NUM_D: printf("%f",v->u.num_d);
 		       break;
 	case LVAL_ERR: printf("ERROR: %s", v->u.err);
 		       break;
@@ -204,6 +209,7 @@ void lval_print(lval *v)
 	}
 }
 
+/*s表达式打印*/
 void lval_expr_print(lval *v, char open, char close)
 {
 	putchar(open);
@@ -225,6 +231,8 @@ void lval_println(lval *v)
 
 /*
  * 弹出索引i处元素，并使其余部分后移
+ * 用[0-i]的内容覆盖[0-i+1]
+ * 将计数索引count减1
  * */
 lval* lval_pop(lval *v, int i)
 {
@@ -239,6 +247,8 @@ lval* lval_pop(lval *v, int i)
 
 /*
  * 删除索引为i的元素
+ * 调用pop函数覆盖原数据
+ * 调用del释放原先堆
  * */
 lval* lval_take(lval *v, int i)
 {
@@ -247,8 +257,17 @@ lval* lval_take(lval *v, int i)
 	return x;
 }
 
+
 lval* builtin_op(lval *a, char *op);
 lval* lval_eval(lval *v);
+/*
+ * 解析s表达式
+ * 首先评估所有子表达式
+ * 有任何错误子表达式调用lval_take返回第一个错误
+ * 没有子项直接返回空结果（）
+ * 正确的表达式，使用lval_pop分离第一各元素，并传递给builtin_op计算
+ * 第一个元素必须为sym类型
+ * */
 lval* lval_eval_sexpr(lval *v)
 {
 	for(int i = 0; i < v->count; ++i) {
@@ -277,11 +296,159 @@ lval* lval_eval_sexpr(lval *v)
 	return result;
 }
 
+/*将sexpr与其他类型分离*/
 lval* lval_eval(lval *v)
 {
 	if(v->type == LVAL_SEXPR)
 		return lval_eval_sexpr(v);
 	return v;
+}
+
+/*操作符函数指针*/
+typedef long (*op_func_t)(long, long);
+typedef double (*op_func_double_t)(double, double);
+
+/*整数操作符函数*/
+static long op_add(long a, long b) {return a + b;}
+static long op_sub(long a, long b) {return a - b;}
+static long op_mul(long a, long b) {return a * b;}
+static long op_div(long a, long b) {return a / b;}
+static long op_mod(long a, long b) {return a % b;}
+static long op_pow_long(long a, long b) {return (long)pow(a, b);}
+static long op_max(long a, long b) {return a > b ? a : b;}
+static long op_min(long a, long b) {return a < b ? a : b;}
+
+/*浮点操作符函数*/
+static double op_add_d(double a, double b) {return a + b;}
+static double op_sub_d(double a, double b) {return a - b;}
+static double op_mul_d(double a, double b) {return a * b;}
+static double op_div_d(double a, double b) {return a / b;}
+static double op_max_d(double a, double b) {return a > b ? a : b;}
+static double op_min_d(double a, double b) {return a < b ? a : b;}
+
+/*操作符表项*/
+typedef struct {
+	const char *name; //操作符名称
+	op_func_t func;		//整数操作函数指针
+	op_func_double_t func_d;	//浮点数操作函数指针
+	int needs_check;		//是否需要检查
+} op_entry_t;
+
+/*操作符映射表*/
+const op_entry_t op_table[] = {
+	{"+",	op_add,		op_add_d,	0},
+	{"-",	op_sub,		op_sub_d,	0},
+	{"*",	op_mul,		op_mul_d,	0},
+	{"/",	op_div,		op_div_d,	1},
+	{"%",	op_mod,		NULL,		0},
+	{"^",	op_pow_long,	NULL,		0},
+	{"add",	op_add,		op_add_d,	0},
+	{"sub",	op_sub,		op_sub_d,	0},
+	{"mul",	op_mul,		op_mul_d,	0},
+	{"div",	op_div,		op_div_d,	1},
+	{"min",	op_min,		op_min_d,	0},
+	{"max",	op_max,		op_max_d,	0},
+	{NULL,	NULL,		NULL,		0}//终止符
+
+};
+
+/*查找操作符函数*/
+op_entry_t* find_op(const char *op_name)
+{
+	for(int i = 0; op_table[i].name != NULL; ++i) {
+		if(strcmp(op_table[i].name, op_name) == 0)
+			return (op_entry_t *)&op_table[i];
+	}
+	return NULL;
+}
+
+lval* builtin_op(lval *a, char *op)
+{
+	int has_double = 0;
+	for(int i = 0; i < a->count; ++i) {
+		int is_num = a->cell[i]->type == LVAL_NUM;
+		int is_dou = a->cell[i]->type == LVAL_NUM_D;
+		if(!is_num && !is_dou) {
+			lval_del(a);
+			return lval_err("Cannot operatot on non-number");
+		}
+		if(a->cell[i]->type == LVAL_NUM_D)
+			has_double = 1;
+	}
+
+	op_entry_t *op_entry = find_op(op);
+	if(!op_entry) {
+		lval_del(a);
+		return lval_err("Unknown operator");
+	}
+
+	if(!has_double) {
+		lval *x = lval_pop(a, 0);
+
+		if(strcmp(op, "-") == 0 && a->count == 0) {
+			x->u.num = -x->u.num;
+			lval_del(a);
+			return x;
+		}
+
+		while (a->count > 0) {
+			lval *y = lval_pop(a, 0);
+			int check = op_entry->needs_check;
+			int is_op_div = strcmp(op, "/") == 0;
+			int is_op_div_s = strcmp(op, "div") == 0;
+			int is_num_0 = y->u.num == 0;
+			if(check && (is_op_div_s || is_op_div) && is_num_0) {
+				lval_del(x);
+				lval_del(y);
+				lval_del(a);
+				return lval_err("Division by zero");
+			}
+
+			x->u.num = op_entry->func(x->u.num, y->u.num);
+			lval_del(y);
+		}
+		lval_del(a);
+		return x;
+	}
+
+	lval *x = lval_pop(a, 0);
+	double dx;
+	if(x->type == LVAL_NUM_D)
+		dx = x->u.num_d;
+	else
+		dx = (double)x->u.num;
+
+	if(strcmp(op, "-") == 0 && a->count == 0) {
+		dx = -dx;
+		lval_del(a);
+		lval_del(x);
+		return lval_num_d(dx);
+	}
+
+	if(!op_entry->func_d) {
+		lval_del(x);
+		lval_del(a);
+		return lval_err("Operator not supported for doubles");
+	}
+
+	while(a->count > 0) {
+		lval *y = lval_pop(a, 0);
+		double dy = y->type == LVAL_NUM_D ? y->u.num_d : (double)y->u.num;
+		int check = op_entry->needs_check;
+		int is_op_div = strcmp(op, "/") == 0;
+		int is_op_div_s = strcmp(op, "div") == 0;
+		if(check && (is_op_div || is_op_div_s) && dy == 0.0) {
+			lval_del(x);
+			lval_del(y);
+			lval_del(a);
+			return lval_err("Division by zero");
+		}
+		dx = op_entry->func_d(dx, dy);
+		lval_del(y);
+	}
+	lval_del(a);
+	lval_del(x);
+	return lval_num_d(dx);
 }
 
 int main(int argc, char** argv)
@@ -310,7 +477,7 @@ int main(int argc, char** argv)
 		  Number, Symbol, Sexpr, Expr, Lispy);
 
 	//仅输出字符串，且自动添加换行符,不支持格式化
-	puts("Lispy Version 0.0.0.0.2");
+	puts("Lispy Version 0.0.1");
 
 	puts("Press Ctrl+c to Exit\n");
 
@@ -340,115 +507,6 @@ int main(int argc, char** argv)
 	mpc_cleanup(5, Number, Symbol, Sexpr, Expr, Lispy);
 	return 0;
 }
-/*
- * 部分较长的函数
- * */
-
-/*运算逻辑处理*/
-lval* builtin_op(lval *a, char *op)
-{
-	int has_double = 0;
-	for(int i = 0; i < a->count; ++i) {
-		if(a->cell[i]->type != LVAL_NUM && a->cell[i]->type != LVAL_DOU) {
-			lval_del(a);
-			return lval_err("Cannot operator on non-number");
-		}
-		if(a->cell[i]->type == LVAL_DOU)
-			has_double = 1;
-	}
-
-	if(!has_double){
-		/*弹出第一个元素*/
-		lval *x = lval_pop(a, 0);
-
-		if(strcmp(op, "-") == 0 && a->count == 0)
-			x->u.num = -x->u.num;
-
-		while(a->count > 0) {
-
-			lval *y = lval_pop(a, 0);
-
-			if(strcmp(op, "+") == 0 || strcmp(op, "add") == 0)
-				x->u.num += y->u.num;
-			if(strcmp(op, "-") == 0 || strcmp(op, "sub") == 0)
-				x->u.num -= y->u.num;
-			if(strcmp(op, "*") == 0 || strcmp(op, "mul") == 0)
-				x->u.num *= y->u.num;
-			if(strcmp(op, "^") == 0)
-				x->u.num = pow(x->u.num, y->u.num) ;
-			if(strcmp(op, "%") == 0)
-				x->u.num %= y->u.num;
-			if(strcmp(op, "max") == 0) {
-				if(x->u.num < y->u.num)
-					x->u.num = y->u.num;
-			}
-			if(strcmp(op, "min") == 0) {
-				if(x->u.num > y->u.num)
-					x->u.num = y->u.num;
-			}
-			if(strcmp(op, "/") == 0 || strcmp(op, "div")) {
-				if(y->u.num == 0){
-					lval_del(x);
-					lval_del(y);
-					x = lval_err("Division by zero");
-					break;
-				}
-				x->u.num /= y->u.num;
-			}
-
-			lval_del(y);
-		}
-		lval_del(a);
-		return x;
-	}
-	lval *x = lval_pop(a, 0);
-	double dx;
-	if(x->type == LVAL_DOU)
-		dx = x->u.dou;
-	else
-		dx = (double)x->u.num;
-	if((strcmp(op, "-") == 0 || strcmp(op, "sub") == 0) && a->count == 0)
-		dx = -dx;
-
-	while(a->count > 0) {
-		lval *y = lval_pop(a, 0);
-		double dy;
-		if(y->type == LVAL_DOU)
-			dy = y->u.dou;
-		else
-			dy = (double)y->u.num;
-		if(strcmp(op, "+") == 0 || strcmp(op, "add") == 0)
-			dx += dy;
-		if(strcmp(op, "-") == 0 || strcmp(op, "sub") == 0)
-			dx -= dy;
-		if(strcmp(op, "*") == 0 || strcmp(op, "mul") == 0)
-			dx *= dy;
-		if(strcmp(op, "max") == 0)
-			dx = (dx > dy) ? dx : dy;
-		if(strcmp(op, "min") == 0)
-			dx = (dx < dy) ? dx : dy;
-		if(strcmp(op, "/") == 0 || strcmp(op, "div") == 0) {
-			if(dy == 0.0){
-				lval_del(x);
-				lval_del(y);
-				lval_del(a);
-				return lval_err("Divsion by zero");
-			}
-			dx /= dy;
-		}
-		if(strcmp(op, "%") == 0 || strcmp(op, "^") == 0){
-			lval_del(x);
-			lval_del(y);
-			lval_del(a);
-			return lval_err("Error operator");
-		}
-	}
-	lval_del(a);
-	lval_del(x);
-	return lval_dou(dx);
-}
-
-
 
 /*Bonus Marks部分附加函数*/
 
