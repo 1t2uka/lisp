@@ -42,3 +42,12 @@ make clean
 
 ## :books: C
 **enum**: a declaration of variables which under the hood are automatically assigned integer constant values
+
+**pointer**:a number representing the starting index of some data in memory
++ using fixed  size to representing a large struct (containing many other sub structs)
++ representing dynamic list
++ modify the input parameters using output whihout copy any data
+
+**Stack**: the memory where all of temporary variables and data structures as manipulate and edit when program lives
+
+**Heap**: a section of memory put aside for storage of object whth a longer lifespan, what has to be manually allocated and deallocated(malloc & free)
