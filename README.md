@@ -51,3 +51,5 @@ make clean
 **Stack**: the memory where all of temporary variables and data structures as manipulate and edit when program lives
 
 **Heap**: a section of memory put aside for storage of object whth a longer lifespan, what has to be manually allocated and deallocated(malloc & free)
+
+**Macros**: work by taking some arguments which can be almost anything, and copying and pasting them into some given pattern
