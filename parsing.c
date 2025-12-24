@@ -32,8 +32,11 @@ void add_history(char* unused) {}
 #if 1
 int leaves(mpc_ast_t *t);
 
-
 #endif
+
+/*错误处理宏*/
+#define LASSERT(args, cond, err) \
+	if(!(cond)) { lval_del(args); return lval_err(err); }
 
 /*枚举可能的lval类型*/
 typedef enum {
@@ -41,7 +44,8 @@ typedef enum {
 	LVAL_NUM_D,
 	LVAL_ERR,
 	LVAL_SYM,
-	LVAL_SEXPR
+	LVAL_SEXPR,
+	LVAL_QEXPR
 } lval_type_t;
 
 /*
@@ -112,6 +116,16 @@ lval* lval_sexpr(void)
 	return v;
 }
 
+/*q表达式构造函数*/
+lval* lval_qexpr(void)
+{
+	lval *v = malloc(sizeof(lval));
+	v->type = LVAL_QEXPR;
+	v->count = 0;
+	v->cell = NULL;
+	return v;
+}
+
 /*析构函数*/
 void lval_del(lval *v)
 {
@@ -122,6 +136,7 @@ void lval_del(lval *v)
 	case LVAL_ERR: free(v->u.err); break;
 	case LVAL_SYM: free(v->u.sym); break;
 
+	case LVAL_QEXPR:
 	case LVAL_SEXPR:
 		       for(int i = 0; i < v->count; ++i) {
 			       lval_del(v->cell[i]);
@@ -178,11 +193,17 @@ lval* lval_read(mpc_ast_t *t)
 		x = lval_sexpr();
 	if(strstr(t->tag, "sexpr"))
 		x = lval_sexpr();
+	if(strstr(t->tag, "qexpr"))
+		x = lval_qexpr();
 
 	for(int i = 0; i < t->children_num; ++i) {
 		if(strcmp(t->children[i]->contents, "(") == 0)
 			continue;
 		if(strcmp(t->children[i]->contents, ")") == 0)
+			continue;
+		if(strcmp(t->children[i]->contents, "}") == 0)
+			continue;
+		if(strcmp(t->children[i]->contents, "{") == 0)
 			continue;
 		if(strcmp(t->children[i]->tag, "regex") == 0)
 			continue;
@@ -197,15 +218,17 @@ void lval_print(lval *v)
 {
 	switch(v->type) {
 	case LVAL_NUM: printf("%li", v->u.num);
-		       break;
+			break;
 	case LVAL_NUM_D: printf("%f",v->u.num_d);
-		       break;
+			break;
 	case LVAL_ERR: printf("ERROR: %s", v->u.err);
-		       break;
+			break;
 	case LVAL_SYM: printf("%s", v->u.sym);
-		       break;
+			break;
 	case LVAL_SEXPR: lval_expr_print(v, '(', ')');
-			 break;
+			break;
+	case LVAL_QEXPR: lval_expr_print(v, '{', '}');
+			break;
 	}
 }
 
@@ -268,6 +291,7 @@ lval* lval_eval(lval *v);
  * 正确的表达式，使用lval_pop分离第一各元素，并传递给builtin_op计算
  * 第一个元素必须为sym类型
  * */
+lval* builtin(lval *a, char *func);
 lval* lval_eval_sexpr(lval *v)
 {
 	for(int i = 0; i < v->count; ++i) {
@@ -291,7 +315,7 @@ lval* lval_eval_sexpr(lval *v)
 		return lval_err("S-expression Does not start with symbol!");
 	}
 
-	lval *result = builtin_op(v, f->u.sym);
+	lval *result = builtin(v, f->u.sym);
 	lval_del(f);
 	return result;
 }
@@ -451,11 +475,107 @@ lval* builtin_op(lval *a, char *op)
 	return lval_num_d(dx);
 }
 
+/*qexpr--head函数*/
+lval* builtin_head(lval *a)
+{
+	LASSERT(a, a->count == 1,
+		"Function 'head' passed too many arguments");
+	LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
+		"Function 'head' passed incorrect type");
+	LASSERT(a, a->cell[0]->count != 0,
+		"Function 'head' passed {}");
+	lval *v = lval_take(a, 0);
+	while (v->count > 1)
+		lval_del(lval_pop(v, 1));
+
+	return v;
+}
+
+/*qexpr--tail 函数*/
+lval* builtin_tail(lval *a)
+{
+	LASSERT(a, a->count ==1,
+		"Function 'tail' passed too many arguments");
+
+	LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
+		"Function 'tail' passed incorrect types");
+
+	LASSERT(a, a->cell[0]->count != 0,
+		"Function 'tail' passed {}");
+
+	lval *v = lval_take(a, 0);
+	lval_del(lval_pop(v, 0));
+
+	return v;
+}
+
+/*qexpr --list函数*/
+lval* builtin_list(lval *a)
+{
+	a->type = LVAL_QEXPR;
+	return a;
+}
+
+/*qexpr --eval函数*/
+lval* builtin_eval(lval *a)
+{
+	LASSERT(a, a->count == 1,
+		"Function 'eval' passed too many arguments");
+	LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
+		"Function 'eval' passed incorrect type");
+
+	lval *x = lval_take(a, 0);
+	x->type = LVAL_SEXPR;
+	return lval_eval(x);
+}
+
+/*反复从y中弹出每个元素将其添加到x中，直到y为空，删除y返回x */
+lval* lval_join(lval *x, lval *y)
+{
+	while (y->count)
+		x = lval_add(x, lval_pop(y, 0));
+
+	lval_del(y);
+	return x;
+}
+
+/*qexpr -- join函数*/
+lval* builtin_join(lval *a)
+{
+	for(int i = 0; i < a->count; ++i)
+		LASSERT(a, a->cell[i]->type == LVAL_QEXPR,
+			"Function 'join' passed incorrect type.");
+
+	lval *x = lval_pop(a, 0);
+
+	while(a->count)
+		x = lval_join(x, lval_pop(a, 0));
+
+	lval_del(a);
+	return x;
+}
+
+lval* builtin(lval *a, char *func)
+{
+	if(strcmp("list", func) == 0) return builtin_list(a);
+	if(strcmp("head", func) == 0) return builtin_head(a);
+	if(strcmp("tail", func) == 0) return builtin_tail(a);
+	if(strcmp("join", func) == 0) return builtin_join(a);
+	if(strcmp("eval", func) == 0) return builtin_eval(a);
+	else
+		return builtin_op(a,func);
+
+	lval_del(a);
+	return lval_err("Unknown Function");
+}
+
+
 int main(int argc, char** argv)
 {
 	mpc_parser_t *Number   = mpc_new("number");
 	mpc_parser_t *Symbol   = mpc_new("symbol");
 	mpc_parser_t *Sexpr    = mpc_new("sexpr");
+	mpc_parser_t *Qexpr    = mpc_new("qexpr");
 	mpc_parser_t *Expr     = mpc_new("expr");
 	mpc_parser_t *Lispy    = mpc_new("lispy");
 
@@ -469,12 +589,15 @@ int main(int argc, char** argv)
 		  number : /-?[0-9]+(\\.[0-9]+)?/;		\
 		  symbol : '+' | '-' | '*' | '/' | '%' | '^'	\
 		  | \"add\" | \"sub\" | \"mul\"	| \"div\"	\
-		  | \"min\" | \"max\";				\
+		  | \"min\" | \"max\" | \"list\" | \"head\" |   \
+		  \"tail\" | \"join\" | \"eval\" |;		\
 		  sexpr: '(' <expr>* ')';			\
-		  expr : <number> | <symbol> | <sexpr>;		\
+		  qexpr: '{' <expr>* '}';			\
+		  expr : <number> | <symbol> | <sexpr>		\
+		  | <qexpr>;					\
 		  lispy	: /^/ <expr>* /$/;			\
 		  ",
-		  Number, Symbol, Sexpr, Expr, Lispy);
+		  Number, Symbol, Sexpr, Qexpr, Expr, Lispy);
 
 	//仅输出字符串，且自动添加换行符,不支持格式化
 	puts("Lispy Version 0.0.1");
@@ -504,7 +627,7 @@ int main(int argc, char** argv)
 
 	}
 
-	mpc_cleanup(5, Number, Symbol, Sexpr, Expr, Lispy);
+	mpc_cleanup(6, Number, Symbol, Sexpr, Qexpr, Expr, Lispy);
 	return 0;
 }
 
