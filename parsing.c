@@ -475,7 +475,11 @@ lval* builtin_op(lval *a, char *op)
 	return lval_num_d(dx);
 }
 
-/*qexpr--head函数*/
+/* qexpr--head函数
+ * 对q表达式取首元素并返回只含该元素的q表达式
+ * @para lisp_value(type == qexpr)
+ * @return lisp_value(qexpr)
+ * */
 lval* builtin_head(lval *a)
 {
 	LASSERT(a, a->count == 1,
@@ -491,7 +495,11 @@ lval* builtin_head(lval *a)
 	return v;
 }
 
-/*qexpr--tail 函数*/
+/* qexpr--tail 函数
+ * 返回尾部，即删除第一个元素后的剩余列表
+ * @para lisp_value(qexpr)
+ * @return lisp_value(qexpr)
+ * */
 lval* builtin_tail(lval *a)
 {
 	LASSERT(a, a->count ==1,
@@ -516,7 +524,11 @@ lval* builtin_list(lval *a)
 	return a;
 }
 
-/*qexpr --eval函数*/
+/* qexpr --eval函数
+ * 将q表达式转换为s表达式并求值
+ * @para lval(qexpr)
+ * @return lval(sexpr)
+ * */
 lval* builtin_eval(lval *a)
 {
 	LASSERT(a, a->count == 1,
@@ -539,7 +551,11 @@ lval* lval_join(lval *x, lval *y)
 	return x;
 }
 
-/*qexpr -- join函数*/
+/* qexpr -- join函数
+ * 链接多个q表达式
+ * @para lval(qexpr)
+ * @return lval(qexpr)
+ * */
 lval* builtin_join(lval *a)
 {
 	for(int i = 0; i < a->count; ++i)
@@ -555,20 +571,61 @@ lval* builtin_join(lval *a)
 	return x;
 }
 
-lval* builtin(lval *a, char *func)
-{
-	if(strcmp("list", func) == 0) return builtin_list(a);
-	if(strcmp("head", func) == 0) return builtin_head(a);
-	if(strcmp("tail", func) == 0) return builtin_tail(a);
-	if(strcmp("join", func) == 0) return builtin_join(a);
-	if(strcmp("eval", func) == 0) return builtin_eval(a);
-	else
-		return builtin_op(a,func);
+typedef lval* (*builtin_fn)(lval*, const char*);
 
+typedef struct {
+	const char *name;
+	builtin_fn fn;
+} builtin_entry;
+
+#define WRAP_NO_NAME(fn) \
+	static lval* fn##_adapter(lval *a, const char *name_unused) \
+	{ (void)name_unused; return fn(a); }
+
+WRAP_NO_NAME(builtin_list)
+WRAP_NO_NAME(builtin_head)
+WRAP_NO_NAME(builtin_tail)
+WRAP_NO_NAME(builtin_join)
+WRAP_NO_NAME(builtin_eval)
+
+static lval* builtin_op_adapter(lval *a, const char *name) {
+	return builtin_op(a, (char*)name);
+}
+
+static const builtin_entry builtin_table[] = {
+	{"list", builtin_list_adapter},
+	{"head", builtin_head_adapter},
+	{"tail", builtin_tail_adapter},
+	{"join", builtin_join_adapter},
+	{"eval", builtin_eval_adapter},
+	{"+",	 builtin_op_adapter},
+	{"-",	 builtin_op_adapter},
+	{"*",	 builtin_op_adapter},
+	{"/",	 builtin_op_adapter},
+	{"%",	 builtin_op_adapter},
+	{"^",	 builtin_op_adapter},
+	{"add",	 builtin_op_adapter},
+	{"sub",  builtin_op_adapter},
+	{"mul",  builtin_op_adapter},
+	{"div",  builtin_op_adapter},
+	{"min",  builtin_op_adapter},
+	{"max",  builtin_op_adapter},
+	{NULL,	 NULL}
+};
+
+static lval* dispatch_builtin(lval *a, const char *name) {
+	const builtin_entry *e;
+	for(e = builtin_table; e->name; ++e) {
+		if(strcmp(e->name, name) == 0)
+			return e->fn(a, name);
+	}
 	lval_del(a);
 	return lval_err("Unknown Function");
 }
 
+lval* builtin(lval *a, char *func) {
+	return dispatch_builtin(a, func);
+}
 
 int main(int argc, char** argv)
 {
