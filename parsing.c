@@ -517,6 +517,24 @@ lval* builtin_tail(lval *a)
 	return v;
 }
 
+lval* builtin_init(lval *a)
+{
+	LASSERT(a, a->count == 1,
+		"Function 'init' passed too many arguments");
+	LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
+		"Function 'init' passed incorrect type");
+
+	/*
+	long length = a->cell[0]->count;
+	lval *v = lval_take(a,length - 1);
+	lval_del(a)
+		*/
+	lval *v = lval_take(a, 0);
+	lval_del(lval_pop(v, v->count - 1));
+
+	return v;
+}
+
 /*qexpr --list函数*/
 lval* builtin_list(lval *a)
 {
@@ -571,6 +589,38 @@ lval* builtin_join(lval *a)
 	return x;
 }
 
+lval* builtin_len(lval *a)
+{
+	LASSERT(a, a->count == 1,
+		"Function 'len' passed too many arguments");
+	LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
+		"Function 'len' passed incorrect type");
+
+	long length = a->cell[0]->count;
+	lval_del(a);
+	return lval_num(length);
+}
+
+lval* builtin_cons(lval *a)
+{
+	LASSERT(a, a->count == 2,
+		"Function 'cons' passed incorrect number");
+	LASSERT(a, a->cell[1]->type == LVAL_QEXPR,
+		"Function 'cons' passed incorrect type");
+
+	lval *x = lval_pop(a, 0);
+	lval *v = lval_take(a, 0);
+
+	v->count++;
+	v->cell = realloc(v->cell, sizeof(lval*) * v->count);
+
+	memmove(&v->cell[1], &v->cell[0],
+		sizeof(lval*) * (v->count - 1));
+
+	v->cell[0] = x;
+	return v;
+}
+
 typedef lval* (*builtin_fn)(lval*, const char*);
 
 typedef struct {
@@ -587,6 +637,9 @@ WRAP_NO_NAME(builtin_head)
 WRAP_NO_NAME(builtin_tail)
 WRAP_NO_NAME(builtin_join)
 WRAP_NO_NAME(builtin_eval)
+WRAP_NO_NAME(builtin_len)
+WRAP_NO_NAME(builtin_init)
+WRAP_NO_NAME(builtin_cons)
 
 static lval* builtin_op_adapter(lval *a, const char *name) {
 	return builtin_op(a, (char*)name);
@@ -598,6 +651,9 @@ static const builtin_entry builtin_table[] = {
 	{"tail", builtin_tail_adapter},
 	{"join", builtin_join_adapter},
 	{"eval", builtin_eval_adapter},
+	{"init", builtin_init_adapter},
+	{"cons", builtin_cons_adapter},
+	{"len",	 builtin_len_adapter},
 	{"+",	 builtin_op_adapter},
 	{"-",	 builtin_op_adapter},
 	{"*",	 builtin_op_adapter},
@@ -647,7 +703,8 @@ int main(int argc, char** argv)
 		  symbol : '+' | '-' | '*' | '/' | '%' | '^'	\
 		  | \"add\" | \"sub\" | \"mul\"	| \"div\"	\
 		  | \"min\" | \"max\" | \"list\" | \"head\" |   \
-		  \"tail\" | \"join\" | \"eval\" |;		\
+		  \"tail\" | \"join\" | \"eval\" | \"len\"	\
+		  | \"cons\" | \"init\";			\
 		  sexpr: '(' <expr>* ')';			\
 		  qexpr: '{' <expr>* '}';			\
 		  expr : <number> | <symbol> | <sexpr>		\
